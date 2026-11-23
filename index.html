@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NetSketch — Network Topology Builder</title>
+<title>NetSketch — Network Topology Builder (V-9)</title>
 <style>
 :root{
   --bg:#0b0f14;
@@ -401,6 +401,9 @@ const LINK_CLASSES = [
 const LINK_CLASS_MAP = Object.fromEntries(LINK_CLASSES.map(l=>[l.id,l]));
 const DIST_UNITS = ['Meter','KM','Feet','Mile'];
 const GROUPS = ['None','Core','Distribution','Access','OLT','Customer','Server','Management'];
+const BG_PALETTE = ['#141c24','#000000','#1e293b','#ffffff','#f1f5f9','#fef3c7','#dcfce7','#dbeafe','#fee2e2','#f3e8ff'];
+const TEXT_PALETTE = ['#eef4f8','#ffffff','#000000','#111827','#1e3a8a','#166534','#991b1b','#b45309'];
+const DEV_DEFAULT_BG = '#141c24', DEV_DEFAULT_TEXT = '#eef4f8';
 const PALETTE = ['#3b82f6','#a855f7','#f59e0b','#eab308','#22c55e','#16a34a','#94a3b8','#ef4444',
                   '#06b6d4','#0ea5e9','#38bdf8','#facc15','#ec4899','#7f8ea3','#ffffff','#10b981'];
 
@@ -585,7 +588,8 @@ function renderDevices(){
     if(!isVisible(d)) g.setAttribute('opacity','0.15'); else if(st==='down') g.setAttribute('opacity','0.8');
 
     const rect = svgEl('rect',{class:'device-box', x:0,y:0,width:w,height:h,rx:7,
-                                fill:'#141c24', stroke:color, 'stroke-width':1.4});
+                                fill:(d.bgColor||'#141c24'), stroke:color, 'stroke-width':1.4});
+    if(d.bgColor) rect.style.fill = d.bgColor;
     g.appendChild(rect);
     if(st==='down'){ rect.setAttribute('stroke','#ef4444'); rect.setAttribute('fill','#2a1416'); rect.setAttribute('stroke-dasharray','6,3'); }
     else if(st==='maint'){ rect.setAttribute('stroke','#f59e0b'); rect.setAttribute('stroke-dasharray','2,3'); }
@@ -605,10 +609,18 @@ function renderDevices(){
     const nameY = Math.max(16, Math.round(h*0.42));
     const subY = Math.min(h-6, Math.round(h*0.74));
 
+    // custom text styling (per-device) — inline style so it beats the CSS class and survives export
+    const fs = Number(d.fontSize)||11;
+    const nameWeight = d.nameWeight || '600';
+    const nameColor = d.textColor || '#eef4f8';
+    const subColor = d.textColor || '#9fb3c1';
+    const subFs = d.fontSize ? Math.round(fs*0.78*10)/10 : 8.6;
+    const boldK = (Number(nameWeight)>=700) ? 1.1 : 1;
     const nameText = svgEl('text',{class:'device-label', x:textX,y:nameY,
-                              fill:'#eef4f8', 'font-family':'-apple-system,Segoe UI,Roboto,Arial,sans-serif',
-                              'font-size':'11px', 'font-weight':'600'});
-    nameText.textContent = truncate(d.name || d.id, Math.max(4,Math.floor(availW/6.2)));
+                              fill:nameColor, 'font-family':'-apple-system,Segoe UI,Roboto,Arial,sans-serif',
+                              'font-size':fs+'px', 'font-weight':nameWeight});
+    nameText.style.fill = nameColor; nameText.style.fontSize = fs+'px'; nameText.style.fontWeight = nameWeight;
+    nameText.textContent = truncate(d.name || d.id, Math.max(4,Math.floor(availW/(6.2*(fs/11)*boldK))));
     g.appendChild(nameText);
 
     const subParts = [type.label];
@@ -616,8 +628,10 @@ function renderDevices(){
     if(d.ip) subParts.push(d.ip);
     else if(d.location) subParts.push(d.location);
     const subText = svgEl('text',{class:'device-sub', x:textX,y:subY,
-                             fill:'#9fb3c1', 'font-family':'SF Mono,Consolas,Roboto Mono,monospace', 'font-size':'8.6px'});
-    subText.textContent = truncate(subParts.join(' · '), Math.max(4,Math.floor(availW/5.2)));
+                             fill:subColor, 'font-family':'SF Mono,Consolas,Roboto Mono,monospace', 'font-size':subFs+'px',
+                             'font-weight': d.subBold ? '700' : '400'});
+    subText.style.fill = subColor; subText.style.fontSize = subFs+'px'; subText.style.fontWeight = d.subBold ? '700' : '400';
+    subText.textContent = truncate(subParts.join(' · '), Math.max(4,Math.floor(availW/(5.2*(subFs/8.6)*(d.subBold?1.1:1)))));
     g.appendChild(subText);
 
     // note/description indicator badge — hover তে tooltip দেখাবে
@@ -1293,6 +1307,38 @@ function renderProps(){
         <span class="prop-label">Color</span>
         <div class="color-swatches" id="pColorSwatches"></div>
       </div>
+      <div class="prop-section">
+        <span class="prop-label">Box Background</span>
+        <div class="color-swatches" id="pBgSwatches"></div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:9px;">
+          <input type="color" id="pBgCustom" value="${d.bgColor||'#141c24'}" style="width:38px;height:26px;padding:0;border:1px solid var(--border);background:none;">
+          <span style="font-size:11px;color:var(--text-faint);">custom</span>
+        </div>
+        <span class="prop-label">Text Color</span>
+        <div class="color-swatches" id="pTextSwatches"></div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:9px;">
+          <input type="color" id="pTextCustom" value="${d.textColor||'#eef4f8'}" style="width:38px;height:26px;padding:0;border:1px solid var(--border);background:none;">
+          <span style="font-size:11px;color:var(--text-faint);">custom</span>
+        </div>
+        <span class="prop-label">Name Font</span>
+        <div style="display:flex;gap:6px;margin-bottom:9px;">
+          <select class="prop-input" id="pNameWeight" style="margin-bottom:0;">
+            <option value="400" ${(d.nameWeight||'600')==='400'?'selected':''}>Normal</option>
+            <option value="600" ${(d.nameWeight||'600')==='600'?'selected':''}>Semi-bold</option>
+            <option value="800" ${(d.nameWeight||'600')==='800'?'selected':''}>Bold</option>
+          </select>
+          <select class="prop-input" id="pFontSize" style="margin-bottom:0;">
+            ${[9,10,11,12,13,14,16,18].map(n=>`<option value="${n}" ${(Number(d.fontSize)||11)===n?'selected':''}>${n}px</option>`).join('')}
+          </select>
+        </div>
+        <label style="display:flex;gap:6px;align-items:center;font-size:12px;color:var(--text-dim);margin-bottom:9px;">
+          <input type="checkbox" id="pSubBold" ${d.subBold?'checked':''}> Type / IP line bold
+        </label>
+        <div style="display:flex;gap:6px;">
+          <button class="pbtn" id="pStyleReset">↺ Reset style</button>
+          <button class="pbtn" id="pStyleAll">⇉ Apply to all</button>
+        </div>
+      </div>
       <div class="prop-section" style="border-bottom:none;">
         <span class="prop-label">Connected Links (${connected.length})</span>
         ${connected.length? connected.map(l=>{
@@ -1307,6 +1353,25 @@ function renderProps(){
       </div>
     `;
     buildSwatches('pColorSwatches', d.color||type.color, (c)=>{ d.color=c; renderDevices(); renderLegend(); snapshot(); renderProps(); });
+    buildSwatches('pBgSwatches', d.bgColor||'', (c)=>{ d.bgColor=c; renderDevices(); snapshot(); renderProps(); }, BG_PALETTE);
+    buildSwatches('pTextSwatches', d.textColor||'', (c)=>{ d.textColor=c; renderDevices(); snapshot(); renderProps(); }, TEXT_PALETTE);
+    el.querySelector('#pBgCustom').oninput=(e)=>{ d.bgColor=e.target.value; renderDevices(); };
+    el.querySelector('#pBgCustom').onchange=()=>{ snapshot(); renderProps(); };
+    el.querySelector('#pTextCustom').oninput=(e)=>{ d.textColor=e.target.value; renderDevices(); };
+    el.querySelector('#pTextCustom').onchange=()=>{ snapshot(); renderProps(); };
+    el.querySelector('#pNameWeight').onchange=(e)=>{ d.nameWeight=e.target.value; renderDevices(); snapshot(); };
+    el.querySelector('#pFontSize').onchange=(e)=>{ d.fontSize=Number(e.target.value); renderDevices(); snapshot(); };
+    el.querySelector('#pSubBold').onchange=(e)=>{ d.subBold=e.target.checked; renderDevices(); snapshot(); };
+    el.querySelector('#pStyleReset').onclick=()=>{
+      ['bgColor','textColor','nameWeight','fontSize','subBold'].forEach(k=>delete d[k]);
+      renderDevices(); snapshot(); renderProps(); toast('Style reset');
+    };
+    el.querySelector('#pStyleAll').onclick=()=>{
+      state.devices.forEach(o=>{
+        ['bgColor','textColor','nameWeight','fontSize','subBold'].forEach(k=>{ if(d[k]===undefined) delete o[k]; else o[k]=d[k]; });
+      });
+      renderDevices(); snapshot(); toast('Style সব device-এ apply হয়েছে');
+    };
     el.querySelector('#pType').onchange=(e)=>{ d.type=e.target.value; renderAll(); snapshot(); };
     el.querySelector('#pName').oninput=(e)=>{ d.name=e.target.value; renderDevices(); };
     el.querySelector('#pName').onblur=()=>snapshot();
