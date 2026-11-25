@@ -201,6 +201,8 @@ input,select,textarea{font-family:var(--sans);}
     <div class="tb-sep"></div>
     <button class="tb-btn" id="btnConnect" title="Connect two devices"><span class="tb-icon">⌁</span>Connect</button>
     <button class="tb-btn" id="btnSelectAll" title="Select All Devices (Ctrl+A)"><span class="tb-icon">▣</span>Select All</button>
+    <button class="tb-btn" id="btnCopy" title="Copy selected (Ctrl+C)"><span class="tb-icon">⧉</span>Copy</button>
+    <button class="tb-btn" id="btnPaste" title="Paste (Ctrl+V)" disabled><span class="tb-icon">📋</span>Paste</button>
     <button class="tb-btn" id="btnDelete" title="Delete selected (Del)"><span class="tb-icon">🗑</span>Delete</button>
     <div class="tb-sep"></div>
     <button class="tb-btn" id="btnZoomOut" title="Zoom Out"><span class="tb-icon">−</span></button>
@@ -210,6 +212,7 @@ input,select,textarea{font-family:var(--sans);}
     <button class="tb-btn" id="btnGrid" title="Toggle Grid / Snap"><span class="tb-icon">▦</span>Grid</button>
     <button class="tb-btn" id="btnPorts" title="Port label দেখানো / লুকানো"><span class="tb-icon">⏚</span>Ports</button>
     <div class="tb-sep"></div>
+    <button class="tb-btn" id="btnOwner" title="Owner / মালিকের নাম সেট করুন"><span class="tb-icon">👤</span>Owner</button>
     <button class="tb-btn" id="btnExportMenuBtn" title="Export"><span class="tb-icon">⭳</span>Export ▾</button>
     <div id="searchWrap">
       <input id="searchInput" placeholder="Search Device...">
@@ -265,6 +268,7 @@ input,select,textarea{font-family:var(--sans);}
     <span>Links: <b id="stLinks">0</b></span>
     <span>Alerts: <b id="stAlerts">0</b></span>
     <span>Zoom: <b id="stZoom">100%</b></span>
+    <span>Owner: <b id="stOwner">—</b></span>
     <span id="stMode">Mode: <b>Select</b></span>
     <span style="margin-left:auto;color:#3fbf7f;">● Auto-saved</span>
   </div>
@@ -331,11 +335,29 @@ input,select,textarea{font-family:var(--sans);}
   </div>
 </div>
 
+<!-- ============ MODAL: Owner ============ -->
+<div class="modal-overlay" id="ownerModalOverlay">
+  <div class="modal" style="width:320px;">
+    <div class="modal-head">Owner / মালিকের নাম</div>
+    <div class="modal-body">
+      <span class="prop-label">Owner Name</span>
+      <input class="prop-input" id="omName" placeholder="যেমন: আপনার নাম / প্রতিষ্ঠানের নাম" maxlength="80">
+      <div style="font-size:11.5px;color:var(--text-dim);margin-top:6px;">এই নাম PNG / SVG / PDF export-এর নিচে (footer-এ) এবং JSON ফাইলে থাকবে।</div>
+    </div>
+    <div class="modal-foot">
+      <button class="pbtn" id="omCancel">Cancel</button>
+      <button class="pbtn primary" id="omSave">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- ============ MODAL: Export ============ -->
 <div class="modal-overlay" id="exportModalOverlay">
   <div class="modal" style="width:300px;">
     <div class="modal-head">Export Project</div>
     <div class="modal-body">
+      <span class="prop-label">Owner / মালিকের নাম (export-এ থাকবে)</span>
+      <input class="prop-input" id="expOwner" placeholder="Owner name" maxlength="80">
       <span class="prop-label">Background (PNG / SVG / PDF)</span>
       <select class="prop-input" id="expBgColor">
         <option value="white" selected>White</option>
@@ -566,6 +588,7 @@ function renderAll(){
   document.getElementById('stDevices').textContent = state.devices.length;
   document.getElementById('stLinks').textContent = state.links.length;
   updateAlertCount();
+  updateOwnerUI();
   document.getElementById('gridRect').style.display = gridEnabled ? '' : 'none';
 }
 
@@ -1957,7 +1980,8 @@ function fitToScreen(){
 /* New / Open / Save */
 document.getElementById('btnNew').onclick = ()=>{
   showConfirm('New Project?', 'বর্তমান topology মুছে নতুন blank project শুরু হবে (auto-save-ও clear হবে)। এগিয়ে যাবেন?', ()=>{
-    state = {devices:[], links:[], notes:[], groupVisibility:Object.fromEntries(GROUPS.map(g=>[g,true]))};
+    const keepOwner = (state.settings && state.settings.ownerName) || '';
+    state = {devices:[], links:[], notes:[], settings: keepOwner ? {ownerName: keepOwner} : {}, groupVisibility:Object.fromEntries(GROUPS.map(g=>[g,true]))};
     selection={type:null,id:null};
     selectedDeviceIds.clear();
     history=[]; historyIndex=-1;
@@ -2044,6 +2068,11 @@ function buildExportSVGString(bgKind){
   // nothing on the canvas — fall back to a default frame instead of Infinity bounds
   if(!isFinite(minX)){ minX=0; maxX=800; minY=0; maxY=600; }
   minX-=pad; maxX+=pad; minY-=pad; maxY+=pad;
+  // owner footer strip (only when an owner name is set)
+  const ownerName = getOwnerName();
+  const footH = ownerName ? 44 : 0;
+  if(ownerName && (maxX-minX)<460){ const cx=(minX+maxX)/2; minX=cx-230; maxX=cx+230; }
+  maxY += footH;
   const w=maxX-minX, h=maxY-minY;
   const svgNS='http://www.w3.org/2000/svg';
   const xlinkNS='http://www.w3.org/1999/xlink';
@@ -2103,6 +2132,29 @@ function buildExportSVGString(bgKind){
     wrapper.appendChild(bg);
   }
   wrapper.appendChild(clone);
+  if(ownerName){
+    const fg = bgKind==='dark' ? '#cbd5e1' : '#334155';
+    const font = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans Bengali',Arial,sans-serif";
+    const line = document.createElementNS(svgNS,'line');
+    line.setAttribute('x1',minX+20); line.setAttribute('x2',maxX-20);
+    line.setAttribute('y1',maxY-footH); line.setAttribute('y2',maxY-footH);
+    line.setAttribute('stroke', bgKind==='dark' ? '#334155' : '#cbd5e1'); line.setAttribute('stroke-width','1');
+    wrapper.appendChild(line);
+    const left = document.createElementNS(svgNS,'text');
+    left.setAttribute('x',minX+24); left.setAttribute('y',maxY-16);
+    left.setAttribute('font-family',font); left.setAttribute('font-size','16');
+    left.setAttribute('font-weight','600'); left.setAttribute('fill',fg);
+    left.textContent = 'Owner: '+ownerName;
+    wrapper.appendChild(left);
+    const right = document.createElementNS(svgNS,'text');
+    right.setAttribute('x',maxX-24); right.setAttribute('y',maxY-16);
+    right.setAttribute('text-anchor','end');
+    right.setAttribute('font-family',font); right.setAttribute('font-size','13');
+    right.setAttribute('fill',fg); right.setAttribute('opacity','0.75');
+    const now=new Date(), pad2=n=>String(n).padStart(2,'0');
+    right.textContent = 'NetSketch · '+now.getFullYear()+'-'+pad2(now.getMonth()+1)+'-'+pad2(now.getDate());
+    wrapper.appendChild(right);
+  }
   return new XMLSerializer().serializeToString(wrapper);
 }
 function exportSVG(){
@@ -2288,6 +2340,99 @@ document.getElementById('searchInput').addEventListener('input',(e)=>{
 });
 
 /* =========================================================================
+   OWNER NAME
+   ========================================================================= */
+function getOwnerName(){ return ((state.settings && state.settings.ownerName) || '').trim(); }
+function setOwnerName(v){
+  if(!state.settings) state.settings = {};
+  state.settings.ownerName = String(v||'').trim();
+  updateOwnerUI();
+}
+function updateOwnerUI(){
+  const o = getOwnerName();
+  const el = document.getElementById('stOwner');
+  if(el) el.textContent = o || '—';
+  const ex = document.getElementById('expOwner');
+  if(ex && document.activeElement!==ex) ex.value = o;
+}
+const ownerOverlay = document.getElementById('ownerModalOverlay');
+function openOwnerModal(){
+  document.getElementById('omName').value = getOwnerName();
+  ownerOverlay.classList.add('show');
+  setTimeout(()=>document.getElementById('omName').focus(), 30);
+}
+function saveOwnerModal(){
+  setOwnerName(document.getElementById('omName').value);
+  ownerOverlay.classList.remove('show');
+  snapshot();
+  toast(getOwnerName() ? 'Owner সেট হয়েছে' : 'Owner মুছে ফেলা হয়েছে');
+}
+document.getElementById('btnOwner').onclick = openOwnerModal;
+document.getElementById('omCancel').onclick = ()=>ownerOverlay.classList.remove('show');
+document.getElementById('omSave').onclick = saveOwnerModal;
+document.getElementById('omName').addEventListener('keydown',(e)=>{ if(e.key==='Enter') saveOwnerModal(); });
+document.getElementById('expOwner').addEventListener('input',(e)=>{ setOwnerName(e.target.value); scheduleAutosave(); });
+document.getElementById('btnExportMenuBtn').addEventListener('click', updateOwnerUI);
+
+/* =========================================================================
+   COPY / PASTE (devices + links between them + notes)
+   ========================================================================= */
+let clipboardData = null;
+let pasteCount = 0;
+function copySelection(){
+  let devIds = new Set();
+  if(selectedDeviceIds.size>0) devIds = new Set(selectedDeviceIds);
+  else if(selection.type==='device') devIds.add(selection.id);
+  const notes = (selection.type==='note' && selectedDeviceIds.size===0)
+    ? state.notes.filter(n=>n.id===selection.id) : [];
+  if(devIds.size===0 && notes.length===0){ toast('Copy করার জন্য আগে Device বা Note সিলেক্ট করুন'); return; }
+  const devices = state.devices.filter(d=>devIds.has(d.id));
+  const links = state.links.filter(l=>devIds.has(l.from) && devIds.has(l.to));
+  clipboardData = JSON.parse(JSON.stringify({devices, links, notes}));
+  pasteCount = 0;
+  document.getElementById('btnPaste').disabled = false;
+  toast(devices.length+' device'+(links.length?', '+links.length+' link':'')+(notes.length?', '+notes.length+' note':'')+' copied');
+}
+function pasteClipboard(){
+  if(!clipboardData){ toast('আগে Copy করুন'); return; }
+  pasteCount++;
+  const off = 40*pasteCount;
+  const idMap = {};
+  const newIds = [];
+  clipboardData.devices.forEach(d=>{
+    const nd = JSON.parse(JSON.stringify(d));
+    nd.id = nextId('dev');
+    idMap[d.id] = nd.id;
+    nd.name = (d.name||d.id)+'-copy';
+    nd.x = d.x+off; nd.y = d.y+off;
+    state.devices.push(nd);
+    newIds.push(nd.id);
+  });
+  clipboardData.links.forEach(l=>{
+    if(!idMap[l.from] || !idMap[l.to]) return;
+    const nl = JSON.parse(JSON.stringify(l));
+    nl.id = nextId('link');
+    nl.from = idMap[l.from]; nl.to = idMap[l.to];
+    state.links.push(nl);
+  });
+  let lastNote = null;
+  clipboardData.notes.forEach(n=>{
+    const nn = JSON.parse(JSON.stringify(n));
+    nn.id = nextId('note');
+    nn.x = n.x+off; nn.y = n.y+off;
+    state.notes.push(nn);
+    lastNote = nn;
+  });
+  if(newIds.length===1){ selection = {type:'device', id:newIds[0]}; selectedDeviceIds = new Set(); }
+  else if(newIds.length>1){ selection = {type:null,id:null}; selectedDeviceIds = new Set(newIds); }
+  else if(lastNote){ selection = {type:'note', id:lastNote.id}; selectedDeviceIds = new Set(); }
+  renderAll(); snapshot();
+  toast('Pasted');
+}
+document.getElementById('btnCopy').onclick = copySelection;
+document.getElementById('btnPaste').onclick = pasteClipboard;
+
+/* =========================================================================
    KEYBOARD SHORTCUTS
    ========================================================================= */
 window.addEventListener('keydown',(e)=>{
@@ -2295,6 +2440,8 @@ window.addEventListener('keydown',(e)=>{
   if(tag==='input'||tag==='textarea'||tag==='select') return;
   if(e.ctrlKey && e.key.toLowerCase()==='z'){ e.preventDefault(); undo(); }
   else if(e.ctrlKey && (e.key.toLowerCase()==='y')){ e.preventDefault(); redo(); }
+  else if(e.ctrlKey && e.key.toLowerCase()==='c'){ e.preventDefault(); copySelection(); }
+  else if(e.ctrlKey && e.key.toLowerCase()==='v'){ e.preventDefault(); pasteClipboard(); }
   else if(e.ctrlKey && e.key.toLowerCase()==='a'){
     e.preventDefault();
     if(state.devices.length>0){
